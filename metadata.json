@@ -1,0 +1,5 @@
+{
+  "name": "AgnoChat - Agentic Workspace",
+  "description": "A powerful, multimodal agentic chat system inspired by AgnoOs. Features multiple specialized AI agents, streaming responses, and a modern UI powered by the Gemini 2.5 Flash API.",
+  "requestFramePermissions": []
+}
