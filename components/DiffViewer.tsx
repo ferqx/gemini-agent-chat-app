@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { translations, Language } from '../translations';
+import '../types';
 
 interface DiffViewerProps {
   original: string;

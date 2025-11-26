@@ -1,144 +1,91 @@
-import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
-import { AgentConfig, Attachment, Message, Role } from "../types";
-import { Language } from "../translations";
+import { GoogleGenAI } from "@google/genai";
+import { AgentConfig, Message, Attachment, KnowledgeDocument, RetrievalResult, LogEntry } from '../types';
 
-/**
- * Streams a response from the Gemini API based on the provided agent configuration and chat history.
- * This function handles formatting the history, preparing attachments, and managing the stream loop.
- *
- * @param {AgentConfig} agent - The configuration of the agent being used (model, system instructions).
- * @param {Message[]} history - The chat history to provide context to the model.
- * @param {string} newMessage - The current user message to send.
- * @param {Attachment[]} [attachments=[]] - Optional list of file attachments (images, etc.).
- * @param {function(string): void} onChunk - Callback function invoked when a text chunk is received.
- * @param {function(string): void} onComplete - Callback function invoked when the stream is complete with full text.
- * @param {function(Error): void} onError - Callback function invoked if an error occurs during the API call.
- * @returns {Promise<void>} A promise that resolves when the stream processing initiates (not when it finishes).
- */
+// Initialize with process.env.API_KEY as required by guidelines
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
 export const streamGeminiResponse = async (
   agent: AgentConfig,
   history: Message[],
-  newMessage: string,
-  attachments: Attachment[] = [],
+  text: string,
+  attachments: Attachment[],
   onChunk: (text: string) => void,
   onComplete: (fullText: string) => void,
-  onError: (error: Error) => void
+  onError: (err: Error) => void,
+  tools?: AgentConfig[],
+  documents?: KnowledgeDocument[],
+  onLog?: (log: LogEntry) => void
 ) => {
   try {
-    // Initialize the client per-request with the user's key
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-    // 1. Format History
-    // We only send previous messages to maintain context, excluding the current new one which goes in 'contents'
-    const previousHistory = history.map(msg => ({
-      role: msg.role === Role.USER ? 'user' : 'model',
-      parts: [{ text: msg.text }]
-    }));
-
-    // 2. Construct Current Message Content
-    const parts: any[] = [];
+    const model = agent.model && agent.model.includes('gemini') ? agent.model : 'gemini-2.5-flash';
     
-    // Add attachments if any
-    attachments.forEach(att => {
-      parts.push({
-        inlineData: {
-          mimeType: att.mimeType,
-          data: att.data
-        }
-      });
-    });
+    // Construct contents from history
+    // Filter out system messages as they should be in systemInstruction
+    const contents = history
+      .filter(msg => msg.role !== 'system')
+      .map(msg => ({
+        role: msg.role === 'model' ? 'model' : 'user',
+        parts: [{ text: msg.text }]
+      }));
 
-    // Add text
-    if (newMessage) {
-      parts.push({ text: newMessage });
+    // If the last message in history is not the current text (or history is empty), add the new prompt
+    const lastMsg = history[history.length - 1];
+    if ((!lastMsg || lastMsg.role !== 'user' || lastMsg.text !== text) && text) {
+       contents.push({
+         role: 'user',
+         parts: [{ text: text }]
+       });
     }
 
-    // 3. Configure and Call API
-    const chat = ai.chats.create({
-      model: agent.model,
-      history: previousHistory,
-      config: {
-        systemInstruction: agent.systemInstruction,
+    const config: any = {
+      systemInstruction: agent.systemInstruction,
+    };
+
+    // Call API with streaming
+    const response = await ai.models.generateContentStream({
+      model: model,
+      contents: contents,
+      config: config
+    });
+
+    let fullText = '';
+    for await (const chunk of response) {
+      const chunkText = chunk.text;
+      if (chunkText) {
+        fullText += chunkText;
+        onChunk(fullText);
       }
-    });
-
-    const resultStream = await chat.sendMessageStream({
-      message: parts
-    });
-
-    let fullText = "";
-
-    for await (const chunk of resultStream) {
-      // Type assertion to safe type
-      const responseChunk = chunk as GenerateContentResponse;
-      const chunkText = responseChunk.text || "";
-      fullText += chunkText;
-      onChunk(fullText);
     }
-
+    
     onComplete(fullText);
+    
+    if (onLog) {
+       onLog({
+          id: Date.now().toString(),
+          type: 'success',
+          title: 'Gemini Response',
+          timestamp: Date.now(),
+          agentName: agent.name,
+          details: { model, tokens: Math.ceil(fullText.length / 4) }
+       });
+    }
 
   } catch (error) {
-    console.error("Gemini API Error:", error);
-    onError(error instanceof Error ? error : new Error("Unknown Gemini API error"));
+    console.error("Gemini API Error", error);
+    onError(error instanceof Error ? error : new Error(String(error)));
   }
 };
 
-/**
- * Generates 3 short context-aware follow-up suggestions based on the conversation.
- * Uses Gemini 2.5 Flash for speed and JSON schema for structure.
- */
-export const generateChatSuggestions = async (
-  history: Message[],
-  lastResponse: string,
-  language: Language
-): Promise<string[]> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
-    // We only need the last few turns for suggestions to keep it fast and cheap
-    const recentContext = history.slice(-4).map(msg => 
-      `${msg.role === Role.USER ? 'User' : 'Model'}: ${msg.text}`
-    ).join('\n');
-
-    const prompt = `
-      Based on the conversation context below and the last model response, provide 3 short, concise, and relevant follow-up questions or commands that the user might want to ask next.
-      
-      Context:
-      ${recentContext}
-      
-      Last Model Response:
-      ${lastResponse}
-      
-      Requirements:
-      1. Responses must be in ${language === 'zh' ? 'Chinese (Simplified)' : 'English'}.
-      2. Keep them short (under 10 words).
-      3. Ensure they are directly related to the content.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.STRING
-          }
-        }
-      }
-    });
-
-    if (response.text) {
-      const parsed = JSON.parse(response.text);
-      if (Array.isArray(parsed)) {
-        return parsed.slice(0, 3); // Ensure max 3
-      }
-    }
-    return [];
-  } catch (error) {
-    console.error("Failed to generate suggestions:", error);
-    return [];
-  }
+export const searchKnowledgeBase = (query: string, documents: KnowledgeDocument[]): RetrievalResult[] => {
+  if (!documents) return [];
+  // Client-side search simulation based on document names
+  // In a real app, this would query a vector DB or backend service
+  return documents
+    .filter(doc => doc.name.toLowerCase().includes(query.toLowerCase()))
+    .map(doc => ({
+      docId: doc.id,
+      docName: doc.name,
+      score: 0.85 + (Math.random() * 0.1),
+      excerpt: `...simulated content from ${doc.name} matching "${query}"...`
+    }));
 };

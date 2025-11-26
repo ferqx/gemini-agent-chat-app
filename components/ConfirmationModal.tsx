@@ -1,5 +1,7 @@
+
 import React from 'react';
 import { Icon } from './Icon';
+import '../types';
 
 interface ConfirmationModalProps {
   isOpen: boolean;

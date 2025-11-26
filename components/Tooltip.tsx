@@ -1,6 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { useSmartPosition, Position } from '../hooks/useSmartPosition';
+import '../types';
 
 interface TooltipProps {
   content: string;
@@ -13,7 +14,7 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, children, position: i
   const triggerRef = useRef<HTMLDivElement>(null);
 
   // Use shared hook for positioning, requiring about 50px of space
-  const actualPosition = useSmartPosition(triggerRef, isVisible, initialPosition, 50);
+  const actualPosition = useSmartPosition(triggerRef, isVisible, initialPosition as Position, 50);
 
   return (
     <div 

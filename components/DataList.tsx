@@ -1,6 +1,7 @@
 
 import React, { ReactNode } from 'react';
 import { Icon } from './Icon';
+import '../types';
 
 interface DataListProps<T> {
   data: T[];

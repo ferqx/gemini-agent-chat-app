@@ -1,15 +1,23 @@
+
+
+
+
+
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Message, Role, AGENTS, UserProfile } from '../types';
 import { Icon } from './Icon';
 import { translations, Language } from '../translations';
 import { Tooltip } from './Tooltip';
+import { WidgetRenderer } from '../gen-components/GenerativeWidgets';
+import { ExecutionTrace } from './ExecutionTrace';
 
 interface MessageBubbleProps {
   message: Message;
   onEdit?: (newText: string) => void;
   onFeedback?: (type: 'up' | 'down') => void;
   onDelete?: () => void;
+  onInteract?: (type: string, data: any) => void;
   isLast?: boolean;
   language: Language;
   userProfile: UserProfile;
@@ -51,7 +59,25 @@ const useSmoothText = (targetText: string, isStreaming: boolean | undefined) => 
   return currentText;
 };
 
-const MessageBubbleBase: React.FC<MessageBubbleProps> = ({ message, onEdit, onFeedback, onDelete, isLast, language, userProfile }) => {
+// Helper to split text into markdown chunks and widget chunks
+const parseContent = (text: string) => {
+  const regex = /(:::widget[\s\S]*?:::)/g;
+  const parts = text.split(regex);
+  return parts.map(part => {
+    if (part.startsWith(':::widget') && part.endsWith(':::')) {
+      try {
+        const jsonStr = part.replace(/^:::widget\s*/, '').replace(/\s*:::$/, '');
+        const widgetData = JSON.parse(jsonStr);
+        return { type: 'widget', content: widgetData };
+      } catch (e) {
+        return { type: 'text', content: part }; // Fallback if parse fails
+      }
+    }
+    return { type: 'text', content: part };
+  });
+};
+
+const MessageBubbleBase: React.FC<MessageBubbleProps> = ({ message, onEdit, onFeedback, onDelete, onInteract, isLast, language, userProfile }) => {
   const isUser = message.role === Role.USER;
   const t = translations[language];
   
@@ -97,8 +123,10 @@ const MessageBubbleBase: React.FC<MessageBubbleProps> = ({ message, onEdit, onFe
     }
   };
 
+  const contentParts = parseContent(displayText);
+
   return (
-    <div className={`flex w-full gap-4 mb-8 group animate-in fade-in slide-in-from-bottom-2 duration-300 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+    <div className={`flex w-full gap-4 mb-4 group animate-in fade-in slide-in-from-bottom-2 duration-300 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* Avatar */}
       <div className={`flex-shrink-0 w-8 h-8 mt-1 rounded-lg flex items-center justify-center shadow-sm overflow-hidden transition-colors duration-300 ${
         isUser 
@@ -133,6 +161,13 @@ const MessageBubbleBase: React.FC<MessageBubbleProps> = ({ message, onEdit, onFe
             : 'text-slate-800 dark:text-slate-200 px-1 py-1' 
         } ${isEditing ? 'w-full' : ''}`}>
           
+          {/* Execution Trace (Logs) - Only for Model */}
+          {!isUser && message.logs && message.logs.length > 0 && (
+            <div className="w-full max-w-full overflow-hidden mb-2">
+               <ExecutionTrace logs={message.logs} isStreaming={message.isStreaming} />
+            </div>
+          )}
+
           {/* Attachments */}
           {message.attachments && message.attachments.length > 0 && !isEditing && (
             <div className={`flex gap-2 mb-3 overflow-x-auto pb-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -200,92 +235,90 @@ const MessageBubbleBase: React.FC<MessageBubbleProps> = ({ message, onEdit, onFe
             <div className={`prose prose-slate dark:prose-invert max-w-none text-[15px] leading-7 ${
               isUser ? 'prose-p:text-white prose-headings:text-white prose-code:text-white prose-strong:text-white prose-a:text-white prose-blockquote:border-white/50' : 'prose-a:text-primary-600 dark:prose-a:text-primary-400 prose-headings:text-primary-700 dark:prose-headings:text-primary-300'
             }`}>
-              {displayText ? (
-                <ReactMarkdown 
-                   components={{
-                     p({children}) {
-                       return <p className="mb-4 last:mb-0">{children}</p>
-                     },
-                     a({node, ...props}) {
-                       return <a target="_blank" rel="noopener noreferrer" className={`hover:underline font-medium transition-colors ${isUser ? 'text-white underline decoration-white/30' : 'text-primary-600 dark:text-primary-400 decoration-primary-300 dark:decoration-primary-700'}`} {...props} />
-                     },
-                     h1({children}) {
-                        return <h1 className={`text-2xl font-bold mb-4 ${!isUser && 'text-primary-700 dark:text-primary-300'}`}>{children}</h1>
-                     },
-                     h2({children}) {
-                        return <h2 className={`text-xl font-bold mb-3 mt-6 ${!isUser && 'text-primary-700 dark:text-primary-300'}`}>{children}</h2>
-                     },
-                     h3({children}) {
-                        return <h3 className={`text-lg font-bold mb-2 mt-4 ${!isUser && 'text-primary-600 dark:text-primary-400'}`}>{children}</h3>
-                     },
-                     blockquote({children}) {
-                        return <blockquote className={`border-l-4 pl-4 italic my-4 ${isUser ? 'border-white/40' : 'border-primary-500/40 text-slate-600 dark:text-slate-400'}`}>{children}</blockquote>
-                     },
-                     code({node, inline, className, children, ...props}: any) {
-                       const match = /language-(\w+)/.exec(className || '')
-                       return !inline ? (
-                         <div className="rounded-xl overflow-hidden my-4 border border-slate-200 dark:border-slate-800 shadow-md bg-[#0d1117] dark:bg-[#0d1117]">
-                           {/* Mac-style window header */}
-                           <div className="flex items-center justify-between px-4 py-2.5 bg-[#161b22] border-b border-slate-800">
-                             <div className="flex gap-1.5">
-                               <div className="w-3 h-3 rounded-full bg-[#ff5f56] hover:bg-[#ff5f56]/80 transition-colors"></div>
-                               <div className="w-3 h-3 rounded-full bg-[#ffbd2e] hover:bg-[#ffbd2e]/80 transition-colors"></div>
-                               <div className="w-3 h-3 rounded-full bg-[#27c93f] hover:bg-[#27c93f]/80 transition-colors"></div>
+              {contentParts.map((part, index) => {
+                if (part.type === 'widget') {
+                  return <WidgetRenderer key={index} type={part.content.type} props={part.content.props} onInteract={onInteract} />;
+                }
+                return (
+                  <ReactMarkdown 
+                     key={index}
+                     components={{
+                       p({children}) {
+                         return <p className="mb-4 last:mb-0">{children}</p>
+                       },
+                       a({node, ...props}) {
+                         return <a target="_blank" rel="noopener noreferrer" className={`hover:underline font-medium transition-colors ${isUser ? 'text-white underline decoration-white/30' : 'text-primary-600 dark:text-primary-400 decoration-primary-300 dark:decoration-primary-700'}`} {...props} />
+                       },
+                       h1({children}) {
+                          return <h1 className={`text-2xl font-bold mb-4 ${!isUser && 'text-primary-700 dark:text-primary-300'}`}>{children}</h1>
+                       },
+                       h2({children}) {
+                          return <h2 className={`text-xl font-bold mb-3 mt-6 ${!isUser && 'text-primary-700 dark:text-primary-300'}`}>{children}</h2>
+                       },
+                       h3({children}) {
+                          return <h3 className={`text-lg font-bold mb-2 mt-4 ${!isUser && 'text-primary-600 dark:text-primary-400'}`}>{children}</h3>
+                       },
+                       blockquote({children}) {
+                          return <blockquote className={`border-l-4 pl-4 italic my-4 ${isUser ? 'border-white/40' : 'border-primary-500/40 text-slate-600 dark:text-slate-400'}`}>{children}</blockquote>
+                       },
+                       code({node, inline, className, children, ...props}: any) {
+                         const match = /language-(\w+)/.exec(className || '')
+                         return !inline ? (
+                           <div className="rounded-xl overflow-hidden my-4 border border-slate-200 dark:border-slate-800 shadow-md bg-[#0d1117] dark:bg-[#0d1117]">
+                             {/* Mac-style window header */}
+                             <div className="flex items-center justify-between px-4 py-2.5 bg-[#161b22] border-b border-slate-800">
+                               <div className="flex gap-1.5">
+                                 <div className="w-3 h-3 rounded-full bg-[#ff5f56] hover:bg-[#ff5f56]/80 transition-colors"></div>
+                                 <div className="w-3 h-3 rounded-full bg-[#ffbd2e] hover:bg-[#ffbd2e]/80 transition-colors"></div>
+                                 <div className="w-3 h-3 rounded-full bg-[#27c93f] hover:bg-[#27c93f]/80 transition-colors"></div>
+                               </div>
+                               <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">
+                                 {match ? match[1] : 'code'}
+                               </span>
+                               <button 
+                                 onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, ''))}
+                                 className="text-slate-500 hover:text-primary-400 transition-colors flex items-center gap-1 text-[10px]"
+                                 title="Copy code"
+                               >
+                                 <Icon name="Copy" size={12} />
+                                 <span className="hidden sm:inline">Copy</span>
+                               </button>
                              </div>
-                             <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">
-                               {match ? match[1] : 'code'}
-                             </span>
-                             <button 
-                               onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, ''))}
-                               className="text-slate-500 hover:text-primary-400 transition-colors flex items-center gap-1 text-[10px]"
-                               title="Copy code"
-                             >
-                               <Icon name="Copy" size={12} />
-                               <span className="hidden sm:inline">Copy</span>
-                             </button>
+                             <div className="p-4 overflow-x-auto">
+                               <code className="!font-mono text-sm text-[#e6edf3]" {...props}>
+                                 {children}
+                               </code>
+                             </div>
                            </div>
-                           <div className="p-4 overflow-x-auto">
-                             <code className="!font-mono text-sm text-[#e6edf3]" {...props}>
-                               {children}
-                             </code>
-                           </div>
-                         </div>
-                       ) : (
-                         <code className={`px-1.5 py-0.5 rounded font-mono text-[13px] border ${
-                           isUser 
-                            ? 'bg-white/20 text-white border-transparent' 
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700'
-                         }`} {...props}>
-                           {children}
-                         </code>
-                       )
-                     },
-                     table({children}) {
-                       return <div className="overflow-x-auto my-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm"><table className="w-full text-sm text-left">{children}</table></div>
-                     },
-                     thead({children}) {
-                        return <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-200 uppercase font-semibold text-xs">{children}</thead>
-                     },
-                     th({children}) {
-                        return <th className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">{children}</th>
-                     },
-                     td({children}) {
-                        return <td className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 last:border-0">{children}</td>
-                     }
-                   }}
-                >
-                  {displayText}
-                </ReactMarkdown>
-              ) : (
-                message.isStreaming && (
-                  <div className="flex items-center gap-2 h-8">
-                    <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                    <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                    <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce"></div>
-                  </div>
-                )
-              )}
-              {message.isStreaming && message.role === Role.MODEL && displayText && (
+                         ) : (
+                           <code className={`px-1.5 py-0.5 rounded font-mono text-[13px] border ${
+                             isUser 
+                              ? 'bg-white/20 text-white border-transparent' 
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                           }`} {...props}>
+                             {children}
+                           </code>
+                         )
+                       },
+                       table({children}) {
+                         return <div className="overflow-x-auto my-4 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm"><table className="w-full text-sm text-left">{children}</table></div>
+                       },
+                       thead({children}) {
+                          return <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-200 uppercase font-semibold text-xs">{children}</thead>
+                       },
+                       th({children}) {
+                          return <th className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">{children}</th>
+                       },
+                       td({children}) {
+                          return <td className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 last:border-0">{children}</td>
+                       }
+                     }}
+                  >
+                    {part.content}
+                  </ReactMarkdown>
+                );
+              })}
+              {message.isStreaming && message.role === Role.MODEL && (
                  <span className="inline-block w-2 h-4 align-middle ml-1 bg-primary-500 animate-pulse rounded-sm shadow-[0_0_10px_theme('colors.primary.500')]"></span>
               )}
             </div>
@@ -376,6 +409,7 @@ export const MessageBubble = React.memo(MessageBubbleBase, (prev, next) => {
     prev.isLast === next.isLast &&
     prev.language === next.language &&
     prev.userProfile.name === next.userProfile.name &&
-    prev.userProfile.avatar === next.userProfile.avatar
+    prev.userProfile.avatar === next.userProfile.avatar &&
+    prev.message.logs?.length === next.message.logs?.length
   );
 });

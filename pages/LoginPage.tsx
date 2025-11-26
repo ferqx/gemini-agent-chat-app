@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Icon } from '../components/Icon';
 import { translations, Language } from '../translations';
+import '../types';
 
 interface LoginPageProps {
   onLogin: () => void;

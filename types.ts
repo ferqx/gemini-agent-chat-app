@@ -1,4 +1,68 @@
 
+export interface AgnoAgent {
+  agent_id: string;
+  name: string;
+  description?: string;
+  instructions?: string;
+  model?: string;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface AgnoSession {
+  session_id: string;
+  agent_id: string;
+  title?: string;
+  user_id?: string;
+  created_at: number;
+  updated_at: number;
+  memory?: Record<string, any>;
+}
+
+export interface AgnoMessage {
+  role: 'user' | 'model' | 'system' | 'tool';
+  content: string;
+  created_at: number;
+  metrics?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    duration?: number;
+  };
+}
+
+export interface AgnoTeam {
+  team_id: string;
+  name: string;
+  description?: string;
+  members?: string[];
+}
+
+export interface RunContent {
+  created_at: number;
+  event: 'RunContent';
+  agent_id: string;
+  agent_name: string;
+  run_id: string;
+  session_id: string;
+  content: string;
+  content_type: string;
+  reasoning_content?: string;
+}
+
+export interface RunCompleted {
+  created_at: number;
+  event: 'RunCompleted';
+  agent_id: string;
+  agent_name: string;
+  run_id: string;
+  session_id: string;
+  content: string;
+  content_type: string;
+  metrics?: any;
+}
+
+// App Internal Types
 export enum Role {
   USER = 'user',
   MODEL = 'model',
@@ -6,9 +70,18 @@ export enum Role {
 }
 
 export interface Attachment {
+  name?: string;
   mimeType: string;
   data: string; // base64
-  name?: string;
+}
+
+export interface LogEntry {
+  id: string;
+  type: 'rag' | 'tool' | 'mcp' | 'step' | 'router' | 'error' | 'success';
+  title: string;
+  timestamp: number;
+  agentName?: string;
+  details?: any;
 }
 
 export interface Message {
@@ -20,6 +93,8 @@ export interface Message {
   isStreaming?: boolean;
   agentName?: string;
   feedback?: 'up' | 'down';
+  metrics?: any;
+  logs?: LogEntry[];
 }
 
 export interface Session {
@@ -32,73 +107,59 @@ export interface Session {
 
 export interface UserProfile {
   name: string;
-  avatar?: string; // base64
+  avatar?: string;
 }
 
 export type ThemeColor = 'blue' | 'emerald' | 'violet' | 'amber' | 'rose';
 
+export interface AgentMetrics {
+  qualityScore: number;
+  interactionCount: number;
+  satisfactionRate: number;
+}
+
 export interface PromptVersion {
   version: number;
   timestamp: number;
-  systemInstruction: string;
   changeLog: string;
-  author?: string;
-}
-
-export interface AgentMetrics {
-  qualityScore: number; // 0-100, based on AI evaluation
-  interactionCount: number;
-  satisfactionRate: number; // 0-100, based on user thumbs up
-  lastEvaluatedAt?: number;
-}
-
-export interface TestCase {
-  id: string;
-  input: string;
-  expectedOutput?: string; // Optional "Golden Answer" for reference-based eval
-}
-
-export interface TestResult {
-  testCaseId: string;
-  actualOutput: string;
-  score: number;
-  pass: boolean;
-  reasoning: string;
-  timestamp: number;
+  systemInstruction: string;
 }
 
 export interface AgentConfig {
   id: string;
   name: string;
-  name_zh: string;
+  name_zh?: string;
   description: string;
-  description_zh: string;
-  systemInstruction: string; // The "Live" prompt
+  description_zh?: string;
+  systemInstruction: string; 
   icon: string;
   color: string;
   themeColor: ThemeColor;
   model: string;
-  
-  // Version Control & Evaluation
+  type?: 'agent' | 'supervisor'; 
+  metrics?: AgentMetrics;
+  knowledgeBaseId?: string;
+  subAgentIds?: string[];
+  draftConfig?: Partial<AgentConfig>;
   promptVersions?: PromptVersion[];
   currentVersion?: number;
-  metrics?: AgentMetrics;
-  
-  // AgentOps / Dev Mode
-  draftConfig?: Partial<AgentConfig>; // Work-in-progress changes
-  testCases?: TestCase[];
-  lastTestResults?: TestResult[];
 }
 
-export interface ModelOption {
-  id: string;
-  name: string;
-  description: string;
-  description_zh: string;
-}
-
+// Knowledge Types
 export type KnowledgeStatus = 'uploading' | 'uploaded' | 'processing' | 'indexing' | 'ready' | 'error';
 export type ChunkingStrategy = 'fixed' | 'semantic' | 'hierarchical';
+
+export interface KnowledgeDocument {
+  id: string;
+  knowledgeBaseId: string;
+  name: string;
+  type: 'pdf' | 'txt' | 'md';
+  size: number;
+  status: KnowledgeStatus;
+  progress: number;
+  uploadedAt: number;
+  chunkingStrategy: ChunkingStrategy;
+}
 
 export interface KnowledgeBaseItem {
   id: string;
@@ -108,117 +169,72 @@ export interface KnowledgeBaseItem {
   updatedAt: number;
 }
 
-export interface KnowledgeDocument {
-  id: string;
-  knowledgeBaseId: string; // Link to parent base
-  name: string;
-  type: 'pdf' | 'txt' | 'md';
-  size: number;
-  status: KnowledgeStatus;
-  progress: number; // 0-100
-  uploadedAt: number;
-  chunkingStrategy: ChunkingStrategy;
-  content?: string; 
+export interface RetrievalResult {
+  docId: string;
+  docName: string;
+  score: number;
+  excerpt: string;
 }
 
-export const AVAILABLE_MODELS: ModelOption[] = [
-  { 
-    id: 'gemini-2.5-flash', 
-    name: 'Gemini 2.5 Flash', 
-    description: 'Balanced speed & intelligence',
-    description_zh: '平衡速度与智能'
-  },
-  { 
-    id: 'gemini-flash-lite-latest', 
-    name: 'Gemini 2.5 Flash Lite', 
-    description: 'Fastest, lowest cost',
-    description_zh: '速度最快，成本最低'
-  },
-  { 
-    id: 'gemini-3-pro-preview', 
-    name: 'Gemini 3.0 Pro', 
-    description: 'Reasoning & complex tasks',
-    description_zh: '推理与复杂任务'
-  },
+// Evaluation Types
+export interface TestCase {
+  id: string;
+  input: string;
+  expectedOutput: string;
+}
+
+export interface TestResult {
+  testCaseId?: string;
+  pass: boolean;
+  score: number;
+  actualOutput: string;
+  reasoning: string;
+}
+
+export interface EvaluationCase {
+  id: string;
+  input: string;
+  expectedOutput?: string;
+}
+
+export interface EvaluationSuite {
+  id: string;
+  name: string;
+  description: string;
+  cases: EvaluationCase[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface EvaluationRun {
+  id: string;
+  suiteId: string;
+  suiteNameSnapshot: string;
+  agentId: string;
+  agentNameSnapshot: string;
+  agentVersionSnapshot: number;
+  timestamp: number;
+  overallScore: number;
+  results: TestResult[];
+}
+
+export const AVAILABLE_MODELS = [
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Google', description_zh: 'Google' },
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: 'Google', description_zh: 'Google' },
 ];
 
-export const DEFAULT_AGENTS: AgentConfig[] = [
+export const AGENTS: AgentConfig[] = [
   {
-    id: 'general',
-    name: 'Orchestrator',
-    name_zh: '全能助手',
-    description: 'General purpose assistant',
-    description_zh: '通用任务处理与协调',
-    systemInstruction: 'You are the Orchestrator, a helpful and precise AI assistant within the AgnoChat OS. You are concise, accurate, and helpful.',
-    icon: 'Cpu',
+    id: 'default-agent',
+    name: 'Helpful Assistant',
+    name_zh: '智能助手',
+    description: 'A generic helpful assistant.',
+    description_zh: '通用的智能助手。',
+    systemInstruction: 'You are a helpful assistant.',
+    icon: 'Bot',
     color: 'text-blue-500',
     themeColor: 'blue',
     model: 'gemini-2.5-flash',
-    promptVersions: [],
-    currentVersion: 1,
-    metrics: { qualityScore: 95, interactionCount: 120, satisfactionRate: 98 }
-  },
-  {
-    id: 'developer',
-    name: 'Dev Architect',
-    name_zh: '技术架构师',
-    description: 'Code and systems engineering',
-    description_zh: '代码编写与系统工程',
-    systemInstruction: 'You are a Senior Software Architect. You specialize in clean code, design patterns, and scalable architecture. Provide code examples in TypeScript or Python where applicable.',
-    icon: 'Terminal',
-    color: 'text-emerald-500',
-    themeColor: 'emerald',
-    model: 'gemini-2.5-flash',
-    promptVersions: [],
-    currentVersion: 1,
-    metrics: { qualityScore: 92, interactionCount: 85, satisfactionRate: 95 }
-  },
-  {
-    id: 'creative',
-    name: 'Creative Studio',
-    name_zh: '创意工作室',
-    description: 'Content creation and ideation',
-    description_zh: '内容创作与灵感构思',
-    systemInstruction: 'You are a Creative Director. You help with brainstorming, storytelling, and visual ideation. Your tone is inspiring and vivid.',
-    icon: 'Palette',
-    color: 'text-violet-500',
-    themeColor: 'violet',
-    model: 'gemini-2.5-flash',
-    promptVersions: [],
-    currentVersion: 1,
-    metrics: { qualityScore: 88, interactionCount: 45, satisfactionRate: 90 }
-  },
-  {
-    id: 'analyst',
-    name: 'Data Analyst',
-    name_zh: '数据分析师',
-    description: 'Reasoning and data insights',
-    description_zh: '逻辑推理与数据洞察',
-    systemInstruction: 'You are a Data Analyst. You excel at breaking down complex problems, analyzing data patterns, and providing logical reasoning.',
-    icon: 'BarChart',
-    color: 'text-amber-500',
-    themeColor: 'amber',
-    model: 'gemini-2.5-flash',
-    promptVersions: [],
-    currentVersion: 1,
-    metrics: { qualityScore: 94, interactionCount: 60, satisfactionRate: 92 }
-  },
-  {
-    id: 'writer',
-    name: 'Tech Writer',
-    name_zh: '技术作家',
-    description: 'Documentation and blogs',
-    description_zh: '文档撰写与博客文章',
-    systemInstruction: 'You are a professional technical writer. You write clear, concise, and engaging documentation and blog posts.',
-    icon: 'Feather',
-    color: 'text-rose-500',
-    themeColor: 'rose',
-    model: 'gemini-2.5-flash',
-    promptVersions: [],
-    currentVersion: 1,
-    metrics: { qualityScore: 90, interactionCount: 30, satisfactionRate: 100 }
+    type: 'agent'
   }
 ];
-
-// Export alias for backward compatibility if needed, but prefer DEFAULT_AGENTS for clarity
-export const AGENTS = DEFAULT_AGENTS;

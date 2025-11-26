@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { Icon } from './Icon';
+import '../types';
 
 export type StatusType = 'success' | 'error' | 'warning' | 'info' | 'neutral';
 

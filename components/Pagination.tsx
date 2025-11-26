@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { Icon } from './Icon';
+import '../types';
 
 interface PaginationProps {
   currentPage: number;
